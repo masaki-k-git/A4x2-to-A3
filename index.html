@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Impose — A4 → A3 面付け変換</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500&family=DM+Mono:wght@300;400&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #181818;
+    --border: #2a2a2a;
+    --accent: #c8f057;
+    --accent-dim: #8aaa1e;
+    --text: #e8e8e8;
+    --text-dim: #666;
+    --text-mid: #999;
+    --mono: 'DM Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 32px 48px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .tagline {
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Main ── */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+
+  /* ── Drop Zone ── */
+  .drop-panel {
+    padding: 64px 48px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .drop-zone {
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+    padding: 56px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(200, 240, 87, 0.03);
+  }
+
+  .drop-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  .drop-icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 16px;
+    opacity: 0.3;
+  }
+
+  .drop-main {
+    font-size: 14px;
+    color: var(--text-mid);
+    margin-bottom: 6px;
+  }
+
+  .drop-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* ── File Info ── */
+  .file-info {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 20px;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .file-info.visible { display: flex; }
+
+  .file-icon {
+    width: 32px;
+    height: 32px;
+    background: rgba(200,240,87,0.1);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .file-icon svg { width: 16px; height: 16px; }
+
+  .file-meta { flex: 1; min-width: 0; }
+
+  .file-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .file-pages {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+
+  .file-clear {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    font-size: 16px;
+    transition: color 0.15s;
+  }
+  .file-clear:hover { color: var(--text); }
+
+  /* ── Convert Button ── */
+  .convert-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 24px;
+    background: var(--accent);
+    color: #0f0f0f;
+    border: none;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+  }
+
+  .convert-btn:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+  }
+
+  .convert-btn:not(:disabled):hover {
+    background: #d8ff60;
+  }
+
+  .spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(0,0,0,0.2);
+    border-top-color: #0f0f0f;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  .spinner.visible { display: block; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Preview / Info Panel ── */
+  .info-panel {
+    padding: 64px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+  }
+
+  /* ── Diagram ── */
+  .diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .diagram-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .diagram-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    width: 60px;
+    flex-shrink: 0;
+  }
+
+  .pages-a4 {
+    display: flex;
+    gap: 4px;
+  }
+
+  .page-chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 4px 7px;
+    color: var(--text-mid);
+    background: var(--surface);
+  }
+
+  .page-chip.accent {
+    border-color: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .arrow {
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .sheet-a3 {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .sheet-half {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    color: var(--accent);
+    background: rgba(200,240,87,0.06);
+  }
+
+  .sheet-half + .sheet-half {
+    border-left: 1px dashed var(--border);
+  }
+
+  /* ── Spec List ── */
+  .spec-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .spec-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .spec-key {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .spec-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-mid);
+    text-align: right;
+  }
+
+  /* ── Log ── */
+  .log {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .log.visible { display: flex; }
+
+  .log-line {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+
+  .log-line .ts { color: var(--border); }
+  .log-line .msg { color: var(--text-mid); }
+  .log-line.ok .msg { color: var(--accent); }
+  .log-line.err .msg { color: #ff6b6b; }
+
+  /* ── Download ── */
+  .download-area {
+    display: none;
+    background: rgba(200,240,87,0.05);
+    border: 1px solid var(--accent-dim);
+    border-radius: 4px;
+    padding: 20px 24px;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .download-area.visible { display: flex; }
+
+  .download-info { flex: 1; }
+
+  .download-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .download-meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .download-btn {
+    padding: 10px 20px;
+    background: none;
+    border: 1px solid var(--accent-dim);
+    color: var(--accent);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+
+  .download-btn:hover {
+    background: rgba(200,240,87,0.08);
+  }
+
+  /* ── Footer ── */
+  footer {
+    padding: 20px 48px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .footer-note {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+
+  .footer-note a {
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+  .footer-note a:hover { color: var(--text-mid); }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    header { padding: 20px 24px 18px; }
+    main { grid-template-columns: 1fr; }
+    .drop-panel { padding: 40px 24px; border-right: none; border-bottom: 1px solid var(--border); }
+    .info-panel { padding: 40px 24px; }
+    footer { padding: 16px 24px; flex-direction: column; gap: 8px; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">PDF Impose</span>
+  <span class="tagline">A4縦 → A3横 2アップ面付け変換 — ブラウザ完結・サーバー不要</span>
+</header>
+
+<main>
+  <!-- Left: Drop + Convert -->
+  <div class="drop-panel">
+    <span class="section-label">Input</span>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".pdf" />
+      <svg class="drop-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="8" y="4" width="18" height="24" rx="2" stroke="#888" stroke-width="1.5"/>
+        <path d="M20 4l8 8h-8V4z" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M12 32h16M20 24v12" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <p class="drop-main">PDFをドロップ、またはクリックして選択</p>
+      <p class="drop-sub">A4縦 / .pdf のみ対応</p>
+    </div>
+
+    <div class="file-info" id="fileInfo">
+      <div class="file-icon">
+        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="2" y="1" width="9" height="13" rx="1" stroke="#c8f057" stroke-width="1.2"/>
+          <path d="M8 1l4 4h-4V1z" stroke="#c8f057" stroke-width="1.2" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="file-meta">
+        <div class="file-name" id="fileName">—</div>
+        <div class="file-pages" id="filePages">—</div>
+      </div>
+      <button class="file-clear" id="fileClear" title="クリア">×</button>
+    </div>
+
+    <button class="convert-btn" id="convertBtn" disabled>
+      <div class="spinner" id="spinner"></div>
+      <span id="convertLabel">Convert</span>
+    </button>
+
+    <div class="download-area" id="downloadArea">
+      <div class="download-info">
+        <div class="download-name" id="downloadName">output.pdf</div>
+        <div class="download-meta" id="downloadMeta">—</div>
+      </div>
+      <a class="download-btn" id="downloadBtn" href="#" download>Download</a>
+    </div>
+  </div>
+
+  <!-- Right: Info + Log -->
+  <div class="info-panel">
+    <div>
+      <span class="section-label" style="display:block;margin-bottom:20px;">配置ルール</span>
+      <div class="diagram">
+        <div class="diagram-row">
+          <span class="diagram-label">Input A4</span>
+          <div class="pages-a4">
+            <span class="page-chip accent">1</span>
+            <span class="page-chip accent">2</span>
+            <span class="page-chip">3</span>
+            <span class="page-chip">4</span>
+            <span class="page-chip">5</span>
+            <span class="page-chip">6</span>
+            <span class="page-chip">…</span>
+          </div>
+        </div>
+        <div class="diagram-row" style="padding-left:72px;gap:8px;">
+          <span style="color:var(--text-dim);font-size:12px;">↓</span>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">2ページ → 1シート</span>
+        </div>
+        <div class="diagram-row">
+          <span class="diagram-label">Sheet 1 A3</span>
+          <div class="sheet-a3">
+            <span class="sheet-half">1</span>
+            <span class="sheet-half">2</span>
+          </div>
+        </div>
+        <div class="diagram-row">
+          <span class="diagram-label">Sheet 2 A3</span>
+          <div class="sheet-a3">
+            <span class="sheet-half">3</span>
+            <span class="sheet-half">4</span>
+          </div>
+        </div>
+        <div class="diagram-row">
+          <span class="diagram-label" style="color:var(--text-dim);">…</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <span class="section-label" style="display:block;margin-bottom:16px;">仕様</span>
+      <div class="spec-list">
+        <div class="spec-row">
+          <span class="spec-key">入力</span>
+          <span class="spec-val">A4縦 PDF</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-key">出力</span>
+          <span class="spec-val">A3横 PDF（2アップ）</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-key">スケール</span>
+          <span class="spec-val">70.7%（1/√2 等比）</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-key">奇数ページ</span>
+          <span class="spec-val">末尾に空白ページを補完</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-key">処理</span>
+          <span class="spec-val">ブラウザ完結 / 非送信</span>
+        </div>
+        <div class="spec-row" style="border-bottom:none;">
+          <span class="spec-key">依存</span>
+          <span class="spec-val">pdf-lib 1.17.1</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <span class="section-label" style="display:block;margin-bottom:12px;">Log</span>
+      <div class="log" id="log"></div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--border);" id="logEmpty">—</div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span class="footer-note">ファイルはサーバーに送信されません — すべてブラウザ内で処理</span>
+  <span class="footer-note"><a href="https://github.com/" id="ghLink" target="_blank">GitHub</a></span>
+</footer>
+
+<script>
+const { PDFDocument, degrees } = PDFLib;
+
+// ── State ──
+let selectedFile = null;
+let outputBlob = null;
+
+// ── Elements ──
+const dropZone   = document.getElementById('dropZone');
+const fileInput  = document.getElementById('fileInput');
+const fileInfo   = document.getElementById('fileInfo');
+const fileName   = document.getElementById('fileName');
+const filePages  = document.getElementById('filePages');
+const fileClear  = document.getElementById('fileClear');
+const convertBtn = document.getElementById('convertBtn');
+const convertLabel = document.getElementById('convertLabel');
+const spinner    = document.getElementById('spinner');
+const downloadArea = document.getElementById('downloadArea');
+const downloadName = document.getElementById('downloadName');
+const downloadMeta = document.getElementById('downloadMeta');
+const downloadBtn  = document.getElementById('downloadBtn');
+const logEl      = document.getElementById('log');
+const logEmpty   = document.getElementById('logEmpty');
+
+// ── Log ──
+function addLog(msg, type = '') {
+  logEmpty.style.display = 'none';
+  logEl.classList.add('visible');
+  const now = new Date();
+  const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  line.innerHTML = `<span class="ts">${ts}</span><span class="msg">${msg}</span>`;
+  logEl.appendChild(line);
+}
+
+function clearLog() {
+  logEl.innerHTML = '';
+  logEl.classList.remove('visible');
+  logEmpty.style.display = '';
+}
+
+// ── File handling ──
+async function handleFile(file) {
+  if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
+    addLog('PDFファイルを選択してください', 'err');
+    return;
+  }
+  selectedFile = file;
+  outputBlob = null;
+  downloadArea.classList.remove('visible');
+  clearLog();
+
+  // ページ数取得
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await PDFDocument.load(buf);
+    const pages = pdf.getPageCount();
+    fileName.textContent = file.name;
+    filePages.textContent = `${pages}ページ  /  ${(file.size / 1024).toFixed(0)} KB`;
+    fileInfo.classList.add('visible');
+    convertBtn.disabled = false;
+    addLog(`読み込み完了: ${file.name} (${pages}p)`);
+  } catch(e) {
+    addLog('PDFの読み込みに失敗しました: ' + e.message, 'err');
+    reset();
+  }
+}
+
+function reset() {
+  selectedFile = null;
+  outputBlob = null;
+  fileInfo.classList.remove('visible');
+  convertBtn.disabled = true;
+  downloadArea.classList.remove('visible');
+  fileInput.value = '';
+}
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+fileClear.addEventListener('click', () => {
+  reset();
+  clearLog();
+});
+
+// Drag & Drop
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+// ── Convert ──
+convertBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+
+  convertBtn.disabled = true;
+  spinner.classList.add('visible');
+  convertLabel.textContent = 'Converting…';
+  downloadArea.classList.remove('visible');
+
+  try {
+    addLog('変換開始…');
+    const inputBuf = await selectedFile.arrayBuffer();
+    const srcDoc = await PDFDocument.load(inputBuf);
+    const totalPages = srcDoc.getPageCount();
+    addLog(`総ページ数: ${totalPages}`);
+
+    // A4・A3サイズ（ポイント）
+    const A4_W = 595.28, A4_H = 841.89;
+    const A3_W = 1190.55, A3_H = 841.89;
+    const scale = A3_H / A4_H; // ≈ 0.7071
+
+    const outDoc = await PDFDocument.create();
+    const pageIndices = Array.from({length: totalPages}, (_, i) => i);
+
+    // 奇数ページ補完
+    const padded = totalPages % 2 !== 0;
+    if (padded) addLog('奇数ページ — 末尾に空白ページを補完');
+
+    const sheetCount = Math.ceil(totalPages / 2);
+
+    for (let s = 0; s < sheetCount; s++) {
+      const li = s * 2;
+      const ri = s * 2 + 1;
+
+      const outPage = outDoc.addPage([A3_W, A3_H]);
+
+      // 左ページを埋め込み
+      if (li < totalPages) {
+        const [embLeft] = await outDoc.embedPages([srcDoc.getPage(li)]);
+        outPage.drawPage(embLeft, {
+          x: 0, y: 0,
+          width:  A4_W * scale,
+          height: A4_H * scale,
+        });
+      }
+
+      // 右ページを埋め込み
+      if (ri < totalPages) {
+        const [embRight] = await outDoc.embedPages([srcDoc.getPage(ri)]);
+        outPage.drawPage(embRight, {
+          x: A3_W / 2, y: 0,
+          width:  A4_W * scale,
+          height: A4_H * scale,
+        });
+      }
+
+      addLog(`  シート ${s+1}/${sheetCount}: [${li+1}][${ri < totalPages ? ri+1 : '空白'}]`);
+    }
+
+    const outBytes = await outDoc.save();
+    outputBlob = new Blob([outBytes], { type: 'application/pdf' });
+
+    // 出力ファイル名
+    const baseName = selectedFile.name.replace(/\.pdf$/i, '');
+    const outName = `${baseName}_a3imposed.pdf`;
+
+    const url = URL.createObjectURL(outputBlob);
+    downloadBtn.href = url;
+    downloadBtn.download = outName;
+    downloadName.textContent = outName;
+    downloadMeta.textContent = `${sheetCount}シート  /  ${(outBytes.byteLength / 1024).toFixed(0)} KB`;
+    downloadArea.classList.add('visible');
+
+    addLog(`変換完了 — ${sheetCount}シート`, 'ok');
+
+  } catch(e) {
+    addLog('エラー: ' + e.message, 'err');
+  } finally {
+    convertBtn.disabled = false;
+    spinner.classList.remove('visible');
+    convertLabel.textContent = 'Convert';
+  }
+});
+</script>
+</body>
+</html>
